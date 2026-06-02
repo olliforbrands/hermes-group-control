@@ -1,0 +1,22 @@
+# Append to ~/.hermes/config.yaml
+
+plugins:
+  enabled:
+    - group-control
+
+group_control:
+  db_path: ~/.hermes/group-control/data.db
+  media_dir: ~/.hermes/group-control/media
+  media_max_mb: 50
+  default_mode: observe
+  admins:
+    - "15551234567"   # replace with your WhatsApp number (country code, no +)
+
+gateway:
+  platforms:
+    whatsapp:
+      extra:
+        require_mention: false
+
+# Also add to ~/.hermes/.env:
+# WHATSAPP_ALLOWED_USERS=*

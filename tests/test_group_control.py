@@ -15,7 +15,10 @@ from gateway.config import Platform
 from gateway.platforms.base import MessageEvent, MessageType
 from gateway.session import SessionSource
 
-PLUGIN_SRC = Path.home() / ".hermes" / "plugins" / "group-control"
+PLUGIN_SRC = Path(__file__).resolve().parents[1]
+_INSTALLED = Path.home() / ".hermes" / "plugins" / "group-control"
+if not (PLUGIN_SRC / "plugin.yaml").exists() and (_INSTALLED / "plugin.yaml").exists():
+    PLUGIN_SRC = _INSTALLED
 GROUP_JID = "120363000000000000@g.us"
 BOT_JID = "15551234567@s.whatsapp.net"
 
