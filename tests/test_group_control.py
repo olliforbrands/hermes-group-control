@@ -15,10 +15,7 @@ from gateway.config import Platform
 from gateway.platforms.base import MessageEvent, MessageType
 from gateway.session import SessionSource
 
-PLUGIN_SRC = Path(__file__).resolve().parents[1]
-_INSTALLED = Path.home() / ".hermes" / "plugins" / "group-control"
-if not (PLUGIN_SRC / "plugin.yaml").exists() and (_INSTALLED / "plugin.yaml").exists():
-    PLUGIN_SRC = _INSTALLED
+PLUGIN_SRC = Path.home() / ".hermes" / "plugins" / "group-control"
 GROUP_JID = "120363000000000000@g.us"
 BOT_JID = "15551234567@s.whatsapp.net"
 
@@ -261,6 +258,21 @@ class TestGcCommand:
             platform="whatsapp",
         )
         assert "Not authorized" in reply
+
+    def test_lid_admin_resolves_via_session_mapping(self, tmp_path):
+        commands = importlib.import_module("group_control.commands")
+        session_dir = tmp_path / "wa-session"
+        session_dir.mkdir()
+        (session_dir / "lid-mapping-918870764795.json").write_text(
+            '"187385665040456"', encoding="utf-8"
+        )
+        (session_dir / "lid-mapping-187385665040456_reverse.json").write_text(
+            '"918870764795"', encoding="utf-8"
+        )
+        ids = importlib.import_module("group_control.whatsapp_ids")
+        with patch.object(ids, "_default_session_dir", return_value=session_dir):
+            assert commands.is_admin("187385665040456@lid", {"918870764795"})
+            assert not commands.is_admin("187385665040456@lid", {"9999999999"})
 
     def test_dm_rejected(self, hermes_home):
         commands = importlib.import_module("group_control.commands")

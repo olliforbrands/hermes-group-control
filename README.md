@@ -62,7 +62,7 @@ Run **inside a WhatsApp group**. Works in **observe** and **mention** mode — t
 | `/gc mode observe` | Archive only; bot never replies |
 | `/gc mode mention` | Archive + bot replies when @mentioned |
 
-**Who can run `/gc`:** phone numbers listed in `group_control.admins` (Hermes config — **not** WhatsApp group admins). If `admins` is empty, anyone in the group can run `/gc`.
+**Who can run `/gc`:** phone numbers listed in `group_control.admins` (Hermes config — **not** WhatsApp group admins). WhatsApp **LID** senders (`...@lid`) are resolved to phone numbers via the bridge session mappings. If `admins` is empty, anyone in the group can run `/gc`.
 
 Switching to the same mode again returns e.g. `Already in observe mode.`
 

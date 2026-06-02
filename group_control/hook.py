@@ -20,8 +20,9 @@ def _source_field(event, name: str) -> str:
     value = getattr(source, name, None)
     if value is None:
         return ""
-    plat_val = getattr(value, "value", value)
-    return str(plat_val)
+    if name == "platform":
+        value = getattr(value, "value", value)
+    return str(value)
 
 
 def on_pre_gateway_dispatch(event, gateway=None, session_store=None, **kwargs) -> Optional[Dict[str, Any]]:

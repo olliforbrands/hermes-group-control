@@ -5,27 +5,27 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from .config import load_config
 from .ingest import _get_storage
-
-
-def _normalize_admin_id(value: str) -> str:
-    v = str(value or "").strip()
-    if ":" in v and "@" in v:
-        v = v.replace(":", "@", 1)
-    return v
+from .whatsapp_ids import expand_whatsapp_identifiers, normalize_whatsapp_identifier
 
 
 def is_admin(user_id: str, admins: set[str]) -> bool:
     """True if user_id is listed in admins. Empty admins allows everyone."""
     if not admins:
         return True
-    uid = _normalize_admin_id(user_id)
-    bare = uid.split("@", 1)[0] if uid else ""
+    if not str(user_id or "").strip():
+        return False
+
+    user_aliases = expand_whatsapp_identifiers(user_id)
+    if not user_aliases:
+        user_aliases = {normalize_whatsapp_identifier(user_id)}
+
     for admin in admins:
-        a = _normalize_admin_id(admin)
-        if uid and (uid == a or bare == a.split("@", 1)[0]):
+        admin_aliases = expand_whatsapp_identifiers(admin)
+        if not admin_aliases:
+            admin_aliases = {normalize_whatsapp_identifier(admin)}
+        if user_aliases & admin_aliases:
             return True
-        if bare and bare == a.split("@", 1)[0]:
-            return True
+
     return False
 
 
