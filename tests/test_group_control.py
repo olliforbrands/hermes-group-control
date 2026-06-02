@@ -15,11 +15,7 @@ from gateway.config import Platform
 from gateway.platforms.base import MessageEvent, MessageType
 from gateway.session import SessionSource
 
-# Repo root when cloned; falls back to standard Hermes install path.
-PLUGIN_SRC = Path(__file__).resolve().parents[1]
-_INSTALLED = Path.home() / ".hermes" / "plugins" / "group-control"
-if not (PLUGIN_SRC / "plugin.yaml").exists() and (_INSTALLED / "plugin.yaml").exists():
-    PLUGIN_SRC = _INSTALLED
+PLUGIN_SRC = Path.home() / ".hermes" / "plugins" / "group-control"
 GROUP_JID = "120363000000000000@g.us"
 BOT_JID = "15551234567@s.whatsapp.net"
 
@@ -99,6 +95,7 @@ def _reset_ingest_singleton():
 
 @pytest.fixture(autouse=True)
 def _ensure_plugin_on_path():
+    _reset_ingest_singleton()
     plugin_dir = str(PLUGIN_SRC)
     if plugin_dir not in sys.path:
         sys.path.insert(0, plugin_dir)
@@ -213,13 +210,119 @@ class TestMedia:
         assert path is None
 
 
+class TestGcCommand:
+    def test_mode_mention_updates_db(self, hermes_home):
+        _reset_ingest_singleton()
+        commands = importlib.import_module("group_control.commands")
+        storage_mod = importlib.import_module("group_control.storage")
+        cfg_mod = importlib.import_module("group_control.config")
+        cfg = cfg_mod.load_config()
+        store = storage_mod.Storage(cfg.db_path)
+        now = "2026-06-02T12:00:00+00:00"
+        store.upsert_group(GROUP_JID, "G", "observe", now)
+
+        reply = commands.handle_gc_command_for_source(
+            "mode mention",
+            user_id="15551234567@s.whatsapp.net",
+            chat_id=GROUP_JID,
+            platform="whatsapp",
+        )
+        assert "mention" in reply.lower()
+        assert store.get_group_mode(GROUP_JID) == "mention"
+
+    def test_idempotent_observe(self, hermes_home):
+        _reset_ingest_singleton()
+        commands = importlib.import_module("group_control.commands")
+        storage_mod = importlib.import_module("group_control.storage")
+        cfg_mod = importlib.import_module("group_control.config")
+        cfg = cfg_mod.load_config()
+        store = storage_mod.Storage(cfg.db_path)
+        now = "2026-06-02T12:00:00+00:00"
+        store.upsert_group(GROUP_JID, "G", "observe", now)
+
+        reply = commands.handle_gc_command_for_source(
+            "mode observe",
+            user_id="15551234567@s.whatsapp.net",
+            chat_id=GROUP_JID,
+            platform="whatsapp",
+        )
+        assert "Already" in reply
+        assert store.get_group_mode(GROUP_JID) == "observe"
+
+    def test_non_admin_rejected(self, hermes_home):
+        commands = importlib.import_module("group_control.commands")
+        reply = commands.handle_gc_command_for_source(
+            "mode mention",
+            user_id="9999999999@s.whatsapp.net",
+            chat_id=GROUP_JID,
+            platform="whatsapp",
+        )
+        assert "Not authorized" in reply
+
+    def test_dm_rejected(self, hermes_home):
+        commands = importlib.import_module("group_control.commands")
+        reply = commands.handle_gc_command_for_source(
+            "mode mention",
+            user_id="15551234567@s.whatsapp.net",
+            chat_id="15551234567@s.whatsapp.net",
+            platform="whatsapp",
+        )
+        assert "group chat" in reply.lower()
+
+
+class TestGcHook:
+    def test_gc_in_observe_schedules_reply_and_skips(self, hermes_home):
+        _reset_ingest_singleton()
+        hook = importlib.import_module("group_control.hook")
+        commands = importlib.import_module("group_control.commands")
+        storage_mod = importlib.import_module("group_control.storage")
+        cfg_mod = importlib.import_module("group_control.config")
+        cfg = cfg_mod.load_config()
+        store = storage_mod.Storage(cfg.db_path)
+        now = "2026-06-02T12:00:00+00:00"
+        store.upsert_group(GROUP_JID, "G", "observe", now)
+
+        event = _group_event(
+            text="/gc mode mention",
+            message_id="gc-hook-1",
+        )
+        event.source.user_id = "15551234567@s.whatsapp.net"
+        gateway = type("GW", (), {"adapters": {Platform.WHATSAPP: object()}})()
+
+        with patch.object(hook, "schedule_reply") as mock_send:
+            with patch.object(hook, "ingest_message", return_value=("observe", True)):
+                result = hook.on_pre_gateway_dispatch(event, gateway=gateway)
+
+        assert result == {"action": "skip", "reason": "group-control-gc-command"}
+        mock_send.assert_called_once()
+        assert store.get_group_mode(GROUP_JID) == "mention"
+        reply_text = mock_send.call_args[0][2]
+        assert "mention" in reply_text.lower()
+
+    def test_gc_non_admin_still_skips(self, hermes_home):
+        hook = importlib.import_module("group_control.hook")
+        event = _group_event(
+            text="/gc mode mention",
+            message_id="gc-hook-2",
+        )
+        event.source.user_id = "9999999999@s.whatsapp.net"
+
+        with patch.object(hook, "schedule_reply") as mock_send:
+            with patch.object(hook, "ingest_message", return_value=("observe", True)):
+                result = hook.on_pre_gateway_dispatch(event, gateway=object())
+
+        assert result["reason"] == "group-control-gc-command"
+        assert "Not authorized" in mock_send.call_args[0][2]
+
+
 class TestHook:
     def test_hook_observe_skips(self, hermes_home):
         _reset_ingest_singleton()
         hook = importlib.import_module("group_control.hook")
         event = _group_event(message_id="hook-1")
-        with patch.object(hook, "ingest_message", return_value=("observe", True)):
-            result = hook.on_pre_gateway_dispatch(event)
+        with patch.object(hook, "schedule_reply"):
+            with patch.object(hook, "ingest_message", return_value=("observe", True)):
+                result = hook.on_pre_gateway_dispatch(event)
         assert result == {"action": "skip", "reason": "group-control-observe"}
 
     def test_hook_mention_ingest_fail_skips(self, hermes_home):

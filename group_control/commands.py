@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-
 from .config import load_config
 from .ingest import _get_storage
 
@@ -15,7 +14,8 @@ def _normalize_admin_id(value: str) -> str:
     return v
 
 
-def _is_admin(user_id: str, admins: set[str]) -> bool:
+def is_admin(user_id: str, admins: set[str]) -> bool:
+    """True if user_id is listed in admins. Empty admins allows everyone."""
     if not admins:
         return True
     uid = _normalize_admin_id(user_id)
@@ -56,7 +56,30 @@ def _session_platform() -> str:
         return ""
 
 
-def handle_gc_command(raw_args: str) -> str:
+def _platform_value(platform: str) -> str:
+    p = str(platform or "").strip().lower()
+    if "." in p:
+        return p.split(".")[-1]
+    return p
+
+
+def _mode_confirmation(mode: str, *, already: bool = False) -> str:
+    if mode == "observe":
+        if already:
+            return "Already in observe mode — archive only, no replies."
+        return "Group set to observe — archive only, no replies (even @mentions)."
+    if already:
+        return "Already in mention mode — archive + replies when @mentioned."
+    return "Group set to mention — archive + Hermes replies when @mentioned."
+
+
+def handle_gc_command_for_source(
+    raw_args: str,
+    user_id: str,
+    chat_id: str,
+    platform: str,
+) -> str:
+    """Run /gc using explicit message source (works from pre_gateway_dispatch hook)."""
     argv = (raw_args or "").strip().split()
     if len(argv) < 2 or argv[0].lower() != "mode":
         return (
@@ -69,19 +92,22 @@ def handle_gc_command(raw_args: str) -> str:
         return "Mode must be `observe` or `mention`."
 
     cfg = load_config()
-    user_id = _session_user_id()
-    if not _is_admin(user_id, cfg.admins):
+    if not is_admin(user_id, cfg.admins):
         return "Not authorized. Add your id to group_control.admins in config.yaml."
 
-    platform = _session_platform()
-    if platform and platform != "whatsapp":
+    plat = _platform_value(platform)
+    if plat and plat != "whatsapp":
         return "Run this command from a WhatsApp session."
 
-    group_jid = _session_chat_id()
+    group_jid = str(chat_id or "").strip()
     if not group_jid or not group_jid.endswith("@g.us"):
         return "Run this command inside a WhatsApp group chat."
 
     _, store = _get_storage()
+    current = store.get_group_mode(group_jid)
+    if current == mode:
+        return _mode_confirmation(mode, already=True)
+
     now = datetime.now(timezone.utc).isoformat()
     if not store.set_group_mode(group_jid, mode, now):
         return (
@@ -89,6 +115,14 @@ def handle_gc_command(raw_args: str) -> str:
             "then run /gc mode again."
         )
 
-    if mode == "observe":
-        return f"Group set to observe — archive only, no replies (even @mentions)."
-    return f"Group set to mention — archive + Hermes replies when @mentioned."
+    return _mode_confirmation(mode, already=False)
+
+
+def handle_gc_command(raw_args: str) -> str:
+    """Slash-command entry (session env when gateway has set context)."""
+    return handle_gc_command_for_source(
+        raw_args,
+        user_id=_session_user_id(),
+        chat_id=_session_chat_id(),
+        platform=_session_platform(),
+    )

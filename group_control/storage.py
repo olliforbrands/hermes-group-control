@@ -123,6 +123,14 @@ class Storage:
             )
             self._conn.commit()
 
+    def get_group_mode(self, jid: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT mode FROM groups WHERE jid = ?",
+                (jid,),
+            ).fetchone()
+            return str(row["mode"]) if row else None
+
     def set_group_mode(self, jid: str, mode: str, now: str) -> bool:
         if mode not in {"observe", "mention"}:
             return False
